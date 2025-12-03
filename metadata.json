@@ -1,0 +1,5 @@
+{
+  "name": "PersistDo",
+  "description": "A needy, persistent daily to-do list with auto-resetting tasks and streak tracking.",
+  "requestFramePermissions": []
+}

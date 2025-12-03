@@ -1,80 +1,36 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Sun, Moon, Flame, LayoutList, Monitor, Trophy, Sparkles, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, Sun, Moon, Flame, LayoutList, Monitor, Trophy } from 'lucide-react';
 import { Task, Priority, AppState } from './types';
 import TaskItem from './components/TaskItem';
 import Modal from './components/Modal';
 
-// --- Simple Confetti Component ---
-const Confetti: React.FC<{ active: boolean }> = ({ active }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  
-  useEffect(() => {
-    if (!active || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    const particles: any[] = [];
-    const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b'];
-
-    for (let i = 0; i < 100; i++) {
-      particles.push({
-        x: window.innerWidth / 2,
-        y: window.innerHeight / 2,
-        vx: (Math.random() - 0.5) * 20,
-        vy: (Math.random() - 0.5) * 20 - 5,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        size: Math.random() * 8 + 4,
-        life: 100
-      });
-    }
-
-    const animate = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      let activeParticles = false;
-
-      particles.forEach(p => {
-        if (p.life > 0) {
-          activeParticles = true;
-          p.x += p.vx;
-          p.y += p.vy;
-          p.vy += 0.5; // Gravity
-          p.life -= 1;
-          p.size *= 0.96;
-
-          ctx.fillStyle = p.color;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      });
-
-      if (activeParticles) requestAnimationFrame(animate);
-    };
-    
-    animate();
-
-  }, [active]);
-
-  if (!active) return null;
-  return <canvas ref={canvasRef} className="fixed inset-0 pointer-events-none z-[100]" />;
-};
-
+// Dnd Kit Imports
+import {
+  DndContext, 
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  TouchSensor
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 
 const App: React.FC = () => {
   // --- State ---
   const [tasks, setTasks] = useState<Task[]>([]);
   const [streak, setStreak] = useState(0);
   const [lastStreakDate, setLastStreakDate] = useState<string | null>(null);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
   const [viewMode, setViewMode] = useState<'list' | 'focus'>('list');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [missedYouMsg, setMissedYouMsg] = useState<string | null>(null);
-  const [showConfetti, setShowConfetti] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState<{ text: string; notes: string; priority: Priority; interval: number }>({
@@ -84,8 +40,25 @@ const App: React.FC = () => {
     interval: 24,
   });
 
+  // DnD Sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Require 8px movement before drag starts to allow clicking
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 200, // Delay to prevent accidental drags on scroll
+        tolerance: 5,
+      },
+    })
+  );
+
   // --- Persistence ---
-  
   useEffect(() => {
     const saved = localStorage.getItem('persistDo_state');
     if (saved) {
@@ -94,18 +67,9 @@ const App: React.FC = () => {
         setTasks(parsed.tasks || []);
         setStreak(parsed.streak || 0);
         setLastStreakDate(parsed.lastStreakDate || null);
-        setDarkMode(parsed.darkMode || false);
+        setDarkMode(parsed.darkMode !== undefined ? parsed.darkMode : true); 
         setViewMode(parsed.viewMode || 'list');
-        
-        // "Needy" Check
-        const lastVisit = parsed.lastVisit || Date.now();
-        const hoursSince = (Date.now() - lastVisit) / (1000 * 60 * 60);
-        if (hoursSince > 36) {
-          setMissedYouMsg("Long time no see! Let's get back on track.");
-        }
       } catch (e) { console.error(e); }
-    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setDarkMode(true);
     }
   }, []);
 
@@ -170,11 +134,7 @@ const App: React.FC = () => {
       const isCompleting = !t.completed;
       
       if (isCompleting) {
-        // Trigger Confetti
-        setShowConfetti(true);
-        setTimeout(() => setShowConfetti(false), 2000);
-
-        // Update Streak
+        // Update Streak Logic
         setLastStreakDate(currentLastDate => {
           if (currentLastDate === today) return currentLastDate;
           const yesterday = new Date();
@@ -195,7 +155,21 @@ const App: React.FC = () => {
   };
 
   const deleteTask = (id: string) => {
-    if (window.confirm("Remove this habit?")) setTasks(prev => prev.filter(t => t.id !== id));
+    if (window.confirm("Delete this habit?")) setTasks(prev => prev.filter(t => t.id !== id));
+  };
+
+  // Drag End Handler
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (over && active.id !== over.id) {
+      setTasks((items) => {
+        const oldIndex = items.findIndex((t) => t.id === active.id);
+        const newIndex = items.findIndex((t) => t.id === over.id);
+        
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
   };
 
   const openModal = (task?: Task) => {
@@ -212,262 +186,224 @@ const App: React.FC = () => {
   const closeModal = () => { setIsModalOpen(false); setEditingTask(null); };
 
   // --- Views Helpers ---
-  const sortedTasks = [...tasks].sort((a, b) => {
-    if (a.completed === b.completed) {
-      const pMap = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
-      return pMap[b.priority] - pMap[a.priority];
-    }
-    return a.completed ? 1 : -1;
-  });
-
-  const activeTask = sortedTasks.find(t => !t.completed);
   const completedCount = tasks.filter(t => t.completed).length;
   const progress = tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0;
+  const activeTask = tasks.find(t => !t.completed); 
 
   return (
-    <div className="min-h-screen pb-20 p-4 sm:p-6 md:p-12 max-w-4xl mx-auto transition-all duration-500">
+    <div className="min-h-screen pb-24 p-4 sm:p-6 max-w-2xl mx-auto font-sans">
       
-      <Confetti active={showConfetti} />
-
-      {/* Missed You Toast */}
-      {missedYouMsg && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 glass px-6 py-3 rounded-full shadow-xl border border-blue-200 dark:border-blue-900 animate-slide-up flex items-center gap-3">
-           <span className="text-sm font-semibold text-blue-600 dark:text-blue-300">👋 {missedYouMsg}</span>
-           <button onClick={() => setMissedYouMsg(null)} className="p-1 hover:bg-black/5 rounded-full"><Plus className="rotate-45" size={16}/></button>
-        </div>
-      )}
-
-      {/* Main Header */}
-      <header className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
+      {/* Header */}
+      <header className="flex items-center justify-between mb-8 mt-2">
         <div>
-           <div className="flex items-center gap-2 mb-1">
-             <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-500/30">
-               <CheckCircle2 size={24} />
-             </div>
-             <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-              PersistDo
-             </h1>
-           </div>
-           <p className="text-slate-500 dark:text-slate-400 font-medium ml-1">Your daily rituals, reimagined.</p>
+           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            PersistDo.
+           </h1>
+           <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+           </p>
         </div>
         
-        <div className="flex items-center gap-3">
-           {/* Streak Badge */}
-          <div className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-orange-100 dark:border-orange-900/30 text-orange-500 dark:text-orange-400 px-4 py-2 rounded-xl font-bold shadow-sm">
-            <Flame size={20} className={`${streak > 0 ? 'fill-orange-500 text-orange-500 animate-pulse-slow' : 'text-gray-300'}`} />
+        <div className="flex items-center gap-2">
+           {/* Streak */}
+          <div className="flex items-center gap-1.5 bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm">
+            <Flame size={16} className={`${streak > 0 ? 'fill-orange-500 text-orange-500' : 'text-slate-400'}`} />
             <span>{streak}</span>
-            <span className="text-xs uppercase tracking-wider text-gray-400 font-normal ml-1">Day Streak</span>
           </div>
           
           <button 
             onClick={() => setDarkMode(!darkMode)}
-            className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-primary dark:hover:text-primary transition-all hover:shadow-md"
+            className="p-2 rounded-lg bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors shadow-sm"
           >
-            {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
           </button>
         </div>
       </header>
 
-      {/* Progress & Stats */}
-      {tasks.length > 0 && (
-        <div className="mb-8 p-6 rounded-3xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl shadow-indigo-500/20 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-          <div className="relative z-10 flex items-center justify-between">
-            <div>
-              <p className="text-indigo-100 font-medium mb-1">Daily Progress</p>
-              <h3 className="text-3xl font-bold">{Math.round(progress)}% <span className="text-lg font-normal opacity-80">Completed</span></h3>
-              <p className="text-sm text-indigo-200 mt-2">
-                {completedCount === tasks.length ? "All done for today! Amazing work." : `${tasks.length - completedCount} tasks remaining.`}
-              </p>
-            </div>
-            
-            {/* Circular Progress */}
-            <div className="relative w-20 h-20">
-              <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                <path className="text-indigo-800/30" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
-                <path className="text-white drop-shadow-md transition-all duration-1000 ease-out" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
-              </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Sparkles size={20} className="text-indigo-200" />
-              </div>
-            </div>
+      {/* Stats Card - Simplified & Clean */}
+      <div className="mb-8 p-6 rounded-2xl bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] text-white shadow-lg shadow-indigo-500/20">
+        <div className="flex items-end justify-between mb-2">
+          <div>
+            <h2 className="text-3xl font-bold">{Math.round(progress)}%</h2>
+            <p className="text-indigo-100 text-sm font-medium">Daily Completed</p>
+          </div>
+          <div className="text-right">
+            <p className="text-indigo-100 text-sm font-medium">{completedCount}/{tasks.length} Tasks</p>
           </div>
         </div>
-      )}
+        {/* Simple Progress Bar */}
+        <div className="w-full h-3 bg-black/20 rounded-full overflow-hidden backdrop-blur-sm">
+          <div 
+            className="h-full bg-white shadow-sm transition-all duration-700 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
 
-      {/* Controls */}
-      <div className="flex justify-between items-center mb-6 sticky top-2 z-30 py-2 glass rounded-2xl px-2 mx-[-8px]">
-        <div className="flex bg-gray-200/50 dark:bg-slate-800/50 rounded-xl p-1 backdrop-blur-sm">
+      {/* View Toggle */}
+      <div className="flex justify-between items-center mb-6">
+        <div className="flex bg-slate-200 dark:bg-slate-800 p-1 rounded-lg">
           <button 
             onClick={() => setViewMode('list')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${viewMode === 'list' ? 'bg-white dark:bg-slate-700 shadow-sm text-primary dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${viewMode === 'list' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}
           >
-            <LayoutList size={16} /> List
+            <LayoutList size={14} /> List
           </button>
           <button 
              onClick={() => setViewMode('focus')}
-             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${viewMode === 'focus' ? 'bg-white dark:bg-slate-700 shadow-sm text-primary dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${viewMode === 'focus' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}
           >
-            <Monitor size={16} /> Focus
+            <Monitor size={14} /> Focus
           </button>
         </div>
-
-        <button 
-          onClick={() => openModal()}
-          className="flex items-center gap-2 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-gray-100 text-white dark:text-slate-900 px-5 py-2.5 rounded-xl font-bold transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0"
-        >
-          <Plus size={20} />
-          <span className="hidden sm:inline">Add Habit</span>
-        </button>
       </div>
 
       {/* Content Area */}
-      <main className="min-h-[300px]">
+      <main>
         {tasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed border-gray-200 dark:border-slate-800 rounded-3xl bg-gray-50/50 dark:bg-slate-900/20">
-             <div className="w-20 h-20 bg-indigo-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-6">
-                <Trophy size={32} className="text-indigo-500" />
+          <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+             <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                <Trophy size={20} className="text-slate-400" />
              </div>
-             <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">No active habits</h3>
-             <p className="text-slate-500 dark:text-slate-400 max-w-xs mx-auto">Start building your streak by adding your first daily habit.</p>
+             <p className="text-slate-500 dark:text-slate-400 font-medium">Start your journey today.</p>
           </div>
         ) : viewMode === 'focus' ? (
-          /* Zen Focus Mode */
-          <div className="py-6 animate-fade-in">
+          /* Focus Mode - Simplified */
+          <div className="py-10 flex flex-col items-center justify-center min-h-[300px]">
             {activeTask ? (
-              <div className="max-w-xl mx-auto">
-                <div className="text-center mb-8">
-                  <span className="inline-block px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 text-xs font-bold tracking-widest uppercase mb-4">
-                    Now Playing
-                  </span>
-                  <h2 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white leading-tight mb-6">
-                    {activeTask.text}
-                  </h2>
-                  {activeTask.notes && (
-                    <p className="text-lg text-slate-500 dark:text-slate-400 font-medium leading-relaxed max-w-md mx-auto">
-                      "{activeTask.notes}"
-                    </p>
-                  )}
-                </div>
-
-                <div className="glass-panel p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-6 transform transition-all hover:scale-[1.02]">
-                  <button
-                    onClick={() => toggleTask(activeTask.id)}
-                    className="w-20 h-20 rounded-full border-4 border-indigo-100 dark:border-slate-700 flex items-center justify-center group hover:border-indigo-500 transition-all duration-300"
-                  >
-                     <div className="w-16 h-16 rounded-full bg-indigo-600 group-hover:bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/40 transition-all">
-                        <CheckCircle2 size={32} className="text-white" />
-                     </div>
-                  </button>
-                  <p className="text-sm font-semibold text-gray-400 uppercase tracking-widest">Mark as done</p>
-                </div>
-                
-                <div className="mt-12 text-center">
-                   <p className="text-slate-400 text-sm">{sortedTasks.filter(t => !t.completed).length - 1} other tasks waiting</p>
-                </div>
+              <div className="w-full max-w-md text-center">
+                <span className="inline-block px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-bold uppercase tracking-wider mb-6">
+                  Now Focused
+                </span>
+                <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-4 leading-tight">
+                  {activeTask.text}
+                </h2>
+                {activeTask.notes && (
+                  <p className="text-slate-500 dark:text-slate-400 mb-10">
+                    {activeTask.notes}
+                  </p>
+                )}
+                <button
+                  onClick={() => toggleTask(activeTask.id)}
+                  className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 transition-all active:scale-95"
+                >
+                   Mark Complete
+                </button>
               </div>
             ) : (
-              <div className="text-center py-20 animate-scale-in">
-                <h2 className="text-4xl sm:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500 mb-6">
-                  All Clear!
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+                  All done for now.
                 </h2>
-                <p className="text-xl text-slate-500 dark:text-slate-400">Enjoy your free time.</p>
+                <p className="text-slate-500">Great work!</p>
               </div>
             )}
           </div>
         ) : (
           /* List Mode */
-          <div className="space-y-4">
-            {sortedTasks.map((task, idx) => (
-              <div key={task.id} style={{ animationDelay: `${idx * 0.05}s` }} className="animate-slide-up">
-                <TaskItem 
-                  task={task} 
-                  onToggle={toggleTask} 
-                  onDelete={deleteTask} 
-                  onEdit={openModal} 
-                />
+          <DndContext 
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext 
+              items={tasks.map(t => t.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-3">
+                {tasks.map((task) => (
+                  <TaskItem 
+                    key={task.id} 
+                    task={task} 
+                    onToggle={toggleTask} 
+                    onDelete={deleteTask} 
+                    onEdit={openModal} 
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+          </DndContext>
         )}
       </main>
+
+      {/* Floating Add Button */}
+      <button 
+        onClick={() => openModal()}
+        className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-600/30 flex items-center justify-center hover:bg-indigo-500 hover:scale-105 active:scale-95 transition-all z-20"
+      >
+        <Plus size={28} />
+      </button>
 
       {/* Edit/Add Modal */}
       <Modal 
         isOpen={isModalOpen} 
         onClose={closeModal} 
-        title={editingTask ? 'Edit Habit' : 'New Daily Habit'}
+        title={editingTask ? 'Edit Task' : 'New Task'}
       >
-        <form onSubmit={handleSaveTask} className="space-y-6">
+        <form onSubmit={handleSaveTask} className="space-y-5">
           <div>
-            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">What do you want to achieve?</label>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Task Name</label>
             <input 
               type="text" 
               required
-              className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#0F172A] text-base focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white placeholder:text-slate-400"
               value={formData.text}
               onChange={e => setFormData({...formData, text: e.target.value})}
-              placeholder="e.g., Read 30 mins, Drink water"
+              placeholder="What needs to be done?"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Details (Optional)</label>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Notes (Optional)</label>
             <textarea 
-              className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all resize-none"
+              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#0F172A] focus:ring-2 focus:ring-indigo-500 outline-none transition-all resize-none dark:text-white placeholder:text-slate-400 text-sm"
               value={formData.notes}
               onChange={e => setFormData({...formData, notes: e.target.value})}
-              placeholder="Any specific goals or reminders?"
-              rows={3}
+              placeholder="Add details..."
+              rows={2}
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Priority</label>
-              <div className="relative">
-                <select 
-                  className="w-full p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 focus:ring-2 focus:ring-primary outline-none appearance-none"
-                  value={formData.priority}
-                  onChange={e => setFormData({...formData, priority: e.target.value as Priority})}
-                >
-                  <option value={Priority.LOW}>Low</option>
-                  <option value={Priority.MEDIUM}>Medium</option>
-                  <option value={Priority.HIGH}>High</option>
-                </select>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">▼</div>
-              </div>
+              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Priority</label>
+              <select 
+                className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#0F172A] focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white text-sm"
+                value={formData.priority}
+                onChange={e => setFormData({...formData, priority: e.target.value as Priority})}
+              >
+                <option value={Priority.LOW}>Low</option>
+                <option value={Priority.MEDIUM}>Medium</option>
+                <option value={Priority.HIGH}>High</option>
+              </select>
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Reset Cycle</label>
-              <div className="relative">
-                <select 
-                  className="w-full p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 focus:ring-2 focus:ring-primary outline-none appearance-none"
-                  value={formData.interval}
-                  onChange={e => setFormData({...formData, interval: Number(e.target.value)})}
-                >
-                  <option value={12}>Every 12 Hours</option>
-                  <option value={24}>Every 24 Hours</option>
-                </select>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">▼</div>
-              </div>
+              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Reset After</label>
+              <select 
+                className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#0F172A] focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white text-sm"
+                value={formData.interval}
+                onChange={e => setFormData({...formData, interval: Number(e.target.value)})}
+              >
+                <option value={12}>12 Hours</option>
+                <option value={24}>24 Hours</option>
+              </select>
             </div>
           </div>
 
-          <div className="pt-4 flex justify-end gap-3">
+          <div className="pt-2 flex justify-end gap-3">
             <button 
               type="button" 
               onClick={closeModal}
-              className="px-5 py-2.5 rounded-xl text-slate-600 dark:text-slate-400 font-semibold hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+              className="px-4 py-2 rounded-lg text-slate-600 dark:text-slate-400 font-medium hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-sm"
             >
               Cancel
             </button>
             <button 
               type="submit"
-              className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-500/30 hover:-translate-y-0.5"
+              className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold transition-all shadow-lg shadow-indigo-500/30 active:scale-95 text-sm"
             >
-              Save Habit
+              Save Task
             </button>
           </div>
         </form>

@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>PersistDo</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -12,13 +14,43 @@
         theme: {
           extend: {
             fontFamily: {
-              sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+              sans: ['Outfit', 'sans-serif'],
             },
             colors: {
-              background: '#0F172A', 
-              surface: '#1E293B', 
-              primary: '#8B5CF6', 
-              secondary: '#64748B',
+              light: {
+                bg: '#FAFAFA',
+                card: '#FFFFFF',
+                text: '#1E293B',
+                subtext: '#94A3B8',
+              },
+              dark: {
+                bg: '#09090b', // Zinc 950
+                card: '#18181b', // Zinc 900
+                text: '#f4f4f5', // Zinc 100
+                subtext: '#a1a1aa', // Zinc 400
+                border: '#27272a', // Zinc 800
+              },
+              neon: {
+                cyan: '#06b6d4',
+                purple: '#8b5cf6',
+                pink: '#ec4899',
+                blue: '#3b82f6',
+              }
+            },
+            boxShadow: {
+              'soft': '0 4px 30px -4px rgba(0, 0, 0, 0.03)',
+              'soft-dark': '0 4px 30px -4px rgba(0, 0, 0, 0.5)',
+              'glow-cyan': '0 0 15px rgba(6, 182, 212, 0.15)',
+              'glow-purple': '0 0 15px rgba(139, 92, 246, 0.15)',
+              'glow-pink': '0 0 15px rgba(236, 72, 153, 0.15)',
+              'floating': '0 10px 40px -10px rgba(0, 0, 0, 0.05)',
+              'floating-dark': '0 10px 40px -10px rgba(0, 0, 0, 0.5)',
+            },
+            backgroundImage: {
+              'dot-grid': 'radial-gradient(#e2e8f0 1px, transparent 1px)',
+              'dot-grid-dark': 'radial-gradient(#27272a 1px, transparent 1px)',
+              'gradient-fade': 'linear-gradient(to bottom, rgba(250,250,250,0) 0%, rgba(250,250,250,1) 100%)',
+              'gradient-fade-dark': 'linear-gradient(to bottom, rgba(9,9,11,0) 0%, rgba(9,9,11,1) 100%)',
             }
           }
         }
@@ -26,17 +58,22 @@
     </script>
     <style>
       body {
-        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-family: 'Outfit', sans-serif;
         -webkit-tap-highlight-color: transparent;
+        /* Default background set in classes */
       }
       
-      /* Smooth scrolling */
-      html { scroll-behavior: smooth; }
+      /* Hide scrollbar */
+      ::-webkit-scrollbar { width: 0px; background: transparent; }
 
-      /* Custom scrollbar */
-      ::-webkit-scrollbar { width: 6px; }
-      ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+      /* Micro-interactions */
+      .hover-trigger .hover-target {
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      .hover-trigger:hover .hover-target {
+        opacity: 1;
+      }
     </style>
     <script type="importmap">
 {
@@ -56,8 +93,8 @@
 </script>
   <link rel="stylesheet" href="/index.css">
 </head>
-  <body class="bg-slate-50 dark:bg-[#0F172A] text-slate-900 dark:text-slate-100 transition-colors duration-300 antialiased selection:bg-indigo-500/30">
-    <div id="root"></div>
+  <body class="bg-light-bg text-light-text dark:bg-dark-bg dark:text-dark-text selection:bg-neon-cyan/10 selection:text-neon-cyan antialiased transition-colors duration-300">
+    <div id="root" class="relative min-h-screen"></div>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

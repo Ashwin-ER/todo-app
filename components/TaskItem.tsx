@@ -55,37 +55,37 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onDelete, onEdit })
         cursor-default
       `}
     >
-      {/* Drag Handle (Visible on Hover) */}
+      {/* Drag Handle (Visible on Hover) - Positioned to avoid overlap */}
       <div 
         {...attributes} 
         {...listeners}
-        className="absolute left-1 top-1/2 -translate-y-1/2 p-2 text-gray-200 dark:text-dark-border opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing hover:text-gray-400 dark:hover:text-dark-subtext transition-opacity"
+        className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center text-gray-200 dark:text-dark-border opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing hover:text-gray-400 dark:hover:text-dark-subtext transition-opacity z-10"
       >
-        <GripVertical size={16} />
+        <GripVertical size={20} />
       </div>
 
-      {/* Checkbox */}
-      <div className="pl-3 pr-4">
+      {/* Checkbox Container - Higher Z-index to prevent drag interference */}
+      <div className="pl-8 pr-5 relative z-20"> 
         <div 
           onClick={(e) => { e.stopPropagation(); onToggle(task.id); }}
           className={`
-            w-6 h-6 rounded-full border transition-all duration-300 cursor-pointer flex items-center justify-center
+            w-8 h-8 rounded-full border-2 transition-all duration-300 cursor-pointer flex items-center justify-center
             ${task.completed 
               ? 'bg-gradient-to-tr from-neon-cyan to-neon-blue border-transparent shadow-glow-cyan scale-100' 
               : 'border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-black/20 hover:border-neon-cyan dark:hover:border-neon-cyan'
             }
           `}
         >
-          <Check size={12} className={`text-white transition-all ${task.completed ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`} strokeWidth={3} />
+          <Check size={16} className={`text-white transition-all ${task.completed ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`} strokeWidth={3} />
         </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col justify-center">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-1.5">
           <p 
             className={`
-              text-base font-medium leading-none truncate transition-all
+              text-lg font-medium leading-none truncate transition-all
               ${task.completed ? 'text-gray-300 dark:text-dark-border line-through decoration-gray-200 dark:decoration-dark-border' : 'text-light-text dark:text-dark-text'}
             `}
           >
@@ -95,7 +95,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onDelete, onEdit })
         
         <div className="flex items-center gap-2 h-4">
            {/* Minimal Dot Priority */}
-           <div className={`w-1.5 h-1.5 rounded-full ${priorityDot} ${task.completed ? 'opacity-30' : 'opacity-100'}`}></div>
+           <div className={`w-2 h-2 rounded-full ${priorityDot} ${task.completed ? 'opacity-30' : 'opacity-100'}`}></div>
            
            {task.notes && (
              <span className="text-xs text-light-subtext dark:text-dark-subtext truncate max-w-[200px] font-light">
@@ -106,12 +106,12 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onDelete, onEdit })
       </div>
 
       {/* Actions */}
-      <div className="opacity-0 group-hover:opacity-100 transition-opacity pl-2">
+      <div className="opacity-0 group-hover:opacity-100 transition-opacity pl-2 z-20">
         <button 
           onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
-          className="p-2 text-gray-300 dark:text-dark-border hover:text-neon-pink hover:bg-neon-pink/5 rounded-full transition-colors"
+          className="p-2.5 text-gray-300 dark:text-dark-border hover:text-neon-pink hover:bg-neon-pink/5 rounded-full transition-colors"
         >
-          <Trash2 size={16} strokeWidth={2} />
+          <Trash2 size={18} strokeWidth={2} />
         </button>
       </div>
     </div>
